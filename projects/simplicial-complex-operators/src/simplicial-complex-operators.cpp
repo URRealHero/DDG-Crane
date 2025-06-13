@@ -138,7 +138,7 @@ SparseMatrix<size_t> SimplicialComplexOperators::buildFaceEdgeAdjacencyMatrix() 
  */
 Vector<size_t> SimplicialComplexOperators::buildVertexVector(const MeshSubset& subset) const {
 
-    set<size_t> vertices = subset.vertices;
+	std::set<size_t> vertices = subset.vertices;
     size_t num_vertices = mesh->nVertices();
     
     Vector<size_t> vertexVector = Vector<size_t>::Zero(num_vertices);
@@ -161,7 +161,7 @@ Vector<size_t> SimplicialComplexOperators::buildVertexVector(const MeshSubset& s
  */
 Vector<size_t> SimplicialComplexOperators::buildEdgeVector(const MeshSubset& subset) const {
 
-    set<size_t> edges = subset.edges;
+	std::set<size_t> edges = subset.edges;
     size_t num_edges = mesh->nEdges();
 
     Vector<size_t> edgeVector = Vector<size_t>::Zero(num_edges);
@@ -184,7 +184,7 @@ Vector<size_t> SimplicialComplexOperators::buildEdgeVector(const MeshSubset& sub
  */
 Vector<size_t> SimplicialComplexOperators::buildFaceVector(const MeshSubset& subset) const {
 
-    set<size_t> faces = subset.faces;
+	std::set<size_t> faces = subset.faces;
     size_t num_faces = mesh->nFaces();
 
     Vector<size_t> faceVector = Vector<size_t>::Zero(num_faces);
@@ -205,9 +205,9 @@ Vector<size_t> SimplicialComplexOperators::buildFaceVector(const MeshSubset& sub
  * Returns: The star of the given subset.
  */
 MeshSubset SimplicialComplexOperators::star(const MeshSubset& subset) const {
-    set<size_t> starVertices = subset.vertices;
-    set<size_t> starEdges = subset.edges;
-    set<size_t> starFaces = subset.faces;
+	std::set<size_t> starVertices = subset.vertices;
+	std::set<size_t> starEdges = subset.edges;
+	std::set<size_t> starFaces = subset.faces;
 
     for (size_t vidx: subset.vertices){
         Vertex v = mesh->vertex(vidx);
@@ -224,7 +224,7 @@ MeshSubset SimplicialComplexOperators::star(const MeshSubset& subset) const {
         while (he != start);
     } // end for vertices
 
-    for (size_t eidx: subset.edges){
+    for (size_t eIdx: subset.edges){
         Edge e = mesh->edge(eIdx);
         Face f1 = e.halfedge().face(); // get the face of the 
         Face f2 = e.halfedge().twin().face();
@@ -235,8 +235,8 @@ MeshSubset SimplicialComplexOperators::star(const MeshSubset& subset) const {
 
     for (size_t eIdx: starEdges) {
         Edge e = mesh->edge(eIdx);
-        Vertex v1 = e.firstVertex();
-        Vertex v2 = e.secondVertex();
+        Vertex v1 = e.halfedge().vertex();
+        Vertex v2 = e.halfedge().twin().vertex();
         starVertices.insert(v1.getIndex());
         starVertices.insert(v2.getIndex());
     } // end for closure vrtices
@@ -297,10 +297,14 @@ MeshSubset SimplicialComplexOperators::closure(const MeshSubset& subset) const {
  * Returns: The link of the given subset.
  */
 MeshSubset SimplicialComplexOperators::link(const MeshSubset& subset) const {
-    const MeshSubset& closureSubset = closure(subset);
-    const MeshSubset& starSubset = star(subset);
+    MeshSubset closureSubset = closure(subset);
+    MeshSubset starSubset = star(subset);
 
-    MeshSubset linkSubset = 
+	// The link is the closure of the subset minus the star of the subset
+	MeshSubset linkSubset = starSubset;
+	linkSubset.deleteSubset(closureSubset);
+
+	return linkSubset;
 }
 
 /*
