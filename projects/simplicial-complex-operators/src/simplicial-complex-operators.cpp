@@ -205,58 +205,39 @@ Vector<size_t> SimplicialComplexOperators::buildFaceVector(const MeshSubset& sub
  * Returns: The star of the given subset.
  */
 MeshSubset SimplicialComplexOperators::star(const MeshSubset& subset) const {
-	std::set<size_t> starVertices = subset.vertices;
-	std::set<size_t> starEdges = subset.edges;
-	std::set<size_t> starFaces = subset.faces;
+    // The star of S is the set of simplices T such that some simplex in S is a face of T.
+    // We start with the initial set, as every simplex is a face of itself.
+    std::set<size_t> starVertices = subset.vertices;
+    std::set<size_t> starEdges = subset.edges;
+    std::set<size_t> starFaces = subset.faces;
 
-    for (size_t vidx: subset.vertices){
-        Vertex v = mesh->vertex(vidx);
-        Halfedge start = v.halfedge();
-        Halfedge he = v.halfedge();
-        if (he == Halfedge()) continue; // skip isolated vertices
-        do{
-            starEdges.insert(he.edge().getIndex());
-            if (he.face() != Face()) {
-                starFaces.insert(he.face().getIndex());
-            }
-            he = he.twin().next(); // reverse direction: find another incident edge
+    // For each vertex in the subset, add all incident edges and faces.
+    for (size_t vIdx : subset.vertices) {
+        Vertex v = mesh->vertex(vIdx);
+        for (Edge e : v.adjacentEdges()) {
+            starEdges.insert(e.getIndex());
         }
-        while (he != start);
-    } // end for vertices
+        for (Face f : v.adjacentFaces()) {
+            starFaces.insert(f.getIndex());
+        }
+    }
 
-    for (size_t eIdx: subset.edges){
+    // For each edge in the subset, add all incident faces.
+    for (size_t eIdx : subset.edges) {
         Edge e = mesh->edge(eIdx);
-        Face f1 = e.halfedge().face(); // get the face of the 
-        Face f2 = e.halfedge().twin().face();
-        if (f1 != Face()) starFaces.insert(f1.getIndex());
-        if (f2 != Face()) starFaces.insert(f2.getIndex());
-    } // end for edges
+        // An edge is a face of at most two faces.
+        if (e.halfedge().face() != Face()) {
+            starFaces.insert(e.halfedge().face().getIndex());
+        }
+        if (e.halfedge().twin().face() != Face()) {
+            starFaces.insert(e.halfedge().twin().face().getIndex());
+        }
+    }
 
-
-    for (size_t eIdx: starEdges) {
-        Edge e = mesh->edge(eIdx);
-        Vertex v1 = e.halfedge().vertex();
-        Vertex v2 = e.halfedge().twin().vertex();
-        starVertices.insert(v1.getIndex());
-        starVertices.insert(v2.getIndex());
-    } // end for closure vrtices
-
-    for (size_t fIdx: starFaces) {
-        Face f = mesh->face(fIdx);
-        Halfedge he = f.halfedge();
-        Halfedge startHe = he; // store the starting halfedge
-        do {
-            starEdges.insert(he.edge().getIndex());
-            starVertices.insert(he.vertex().getIndex());
-            he = he.next();
-        } while (he != startHe); // loop through all halfedges of the face
-    } // end for closure faces
-
+    // Faces in the subset don't have any higher-dimensional simplices containing them (in a 2D mesh).
 
     return MeshSubset(starVertices, starEdges, starFaces);
 }
-
-
 /*
  * Compute the closure Cl(S) of the selected subset of simplices.
  *
@@ -297,12 +278,16 @@ MeshSubset SimplicialComplexOperators::closure(const MeshSubset& subset) const {
  * Returns: The link of the given subset.
  */
 MeshSubset SimplicialComplexOperators::link(const MeshSubset& subset) const {
-    MeshSubset closureSubset = closure(subset);
-    MeshSubset starSubset = star(subset);
+	// The link is the closure of star of the subset minus the star of the closure of the subset.
+	
+	MeshSubset starSubset = star(subset);
+	MeshSubset closureSubset = closure(subset);
+	MeshSubset closureStarSubset = closure(starSubset);
+	MeshSubset starClosureSubset = star(closureSubset);
 
 	// The link is the closure of the subset minus the star of the subset
-	MeshSubset linkSubset = starSubset;
-	linkSubset.deleteSubset(closureSubset);
+	MeshSubset linkSubset = closureStarSubset;
+	linkSubset.deleteSubset(starClosureSubset);
 
 	return linkSubset;
 }
@@ -315,8 +300,10 @@ MeshSubset SimplicialComplexOperators::link(const MeshSubset& subset) const {
  */
 bool SimplicialComplexOperators::isComplex(const MeshSubset& subset) const {
 
-    // TODO
-    return false; // placeholder
+	// A simplicial complex is a set of simplices such that every face of a simplex is also in the set.
+	//
+	
+    return subset.equals(closure(subset)); // placeholder
 }
 
 /*
@@ -328,8 +315,68 @@ bool SimplicialComplexOperators::isComplex(const MeshSubset& subset) const {
  */
 int SimplicialComplexOperators::isPureComplex(const MeshSubset& subset) const {
 
-    // TODO
-    return -1; // placeholder
+	// Pure simplicial complex: every < k simplicial complex is in at least one k-simplicial complex.
+	if (!isComplex(subset))
+		return -1;
+		
+	
+	// Check the complexes' dimension
+	int d = -1;
+	if (!subset.faces.empty()){
+		d = 2;
+	}
+	else if (!subset.edges.empty()) {
+		d = 1;
+	}
+	else if (!subset.vertices.empty()) {
+		d = 0;
+	}
+    else {
+        return -1;
+    }
+
+    if (d == 2) {
+        // Every edge must be part of a selected face.
+        for (const size_t eIdx : subset.edges) {
+            Edge e = mesh->edge(eIdx);
+            bool isAttached = false;
+            if (e.halfedge().face() != Face() && subset.faces.count(e.halfedge().face().getIndex())) {
+                isAttached = true; // If the edge is part of a selected face
+            }
+            if (!isAttached && e.halfedge().twin().face() != Face() && subset.faces.count(e.halfedge().twin().face().getIndex())) {
+                isAttached = true; // If the twin(reverse) of the edge is part of a selected face
+            }
+            if (!isAttached) return -1;
+        }
+
+        // Every vertex must be part of a selected face.
+        for (const size_t vIdx : subset.vertices) {
+            Vertex v = mesh->vertex(vIdx);
+            bool isAttached = false;
+            for (Face f : v.adjacentFaces()) {
+                if (subset.faces.count(f.getIndex())) {
+                    isAttached = true;
+                    break;
+                }
+            }
+            if (!isAttached) return -1;
+        }
+    } else if (d == 1) {
+        // Every vertex must be part of a selected edge.
+        for (const size_t vIdx : subset.vertices) {
+            Vertex v = mesh->vertex(vIdx);
+            bool isAttached = false;
+            for (Edge e : v.adjacentEdges()) {
+                if (subset.edges.count(e.getIndex())) {
+                    isAttached = true;
+                    break;
+                }
+            }
+            if (!isAttached) return -1;
+        }
+    }
+
+    return d;
 }
 
 /*
@@ -340,6 +387,29 @@ int SimplicialComplexOperators::isPureComplex(const MeshSubset& subset) const {
  */
 MeshSubset SimplicialComplexOperators::boundary(const MeshSubset& subset) const {
 
-    // TODO
-    return subset; // placeholder
+    std::set<size_t> bdVertices;
+    std::set<size_t> bdEdges;
+
+    // Loop through the edges in the subset
+    for (size_t eIdx : subset.edges){
+        Edge e = mesh->edge(eIdx);
+        HalfEdge he = e.halfedge();
+        int d = 0;
+
+        Face f1 = he.face();
+        if (f1 != Face() && subset.faces.count(f1.getIndex())){
+            d++;
+        }
+        Face f2 = he.twin().face();
+        if (f2 != Face() && subset.faces.count(f2.getIndex())){
+            d++;
+        }
+        if (d == 1){
+            bdEdges.insert(eIdx); // Edge is in the boundary if it is part of exactly one face
+        }
+    }
+
+    MeshSubset bdedgeSubset = MeshSubset({}, bdEdges, {}); // Create a MeshSubset for the boundary edges
+    return closure(bdedgeSubset); 
+
 }
